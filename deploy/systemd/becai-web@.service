@@ -1,0 +1,17 @@
+[Unit]
+Description=BECAI 中文控制台
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/becai
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/opt/becai/.venv/bin/python -m becai.cli web
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

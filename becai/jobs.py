@@ -126,7 +126,7 @@ class JobManager:
         for j in jobs:
             if j["status"] == "running" and not _alive(j["pid"]):
                 self.store.update(j["id"], status="interrupted", finished=int(time.time() * 1000), message="进程异常退出，可从断点恢复")
-                j["status"], j["status_cn"] = "interrupted", STATUS_CN["interrupted"]
+                j["status"], j["status_cn"], j["message"] = "interrupted", STATUS_CN["interrupted"], "进程异常退出，可从断点恢复"
         return jobs
 
     def resume(self, job_id: int) -> int:

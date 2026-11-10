@@ -31,7 +31,7 @@ EDITABLE = {  # 允许在控制台修改的配置项（风控上限与赔率由�
 
 
 def gpu_status() -> dict:
-    out = {"available": False, "gpus": [], "cpu_percent": psutil.cpu_percent(interval=None), "cpu_count": psutil.cpu_count(),
+    out = {"available": False, "gpus": [], "cpu_percent": psutil.cpu_percent(interval=0.1), "cpu_count": psutil.cpu_count(),
            "ram_used_gb": psutil.virtual_memory().used / 1e9, "ram_total_gb": psutil.virtual_memory().total / 1e9,
            "load_avg": list(os.getloadavg())}
     if not shutil.which("nvidia-smi"):

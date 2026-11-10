@@ -1,0 +1,31 @@
+# GPU 训练服务器推荐配置（RTX PRO 6000 Blackwell 96GB / 22 核 / 110GB 内存）
+# 复制为 config/local.yaml 后按需修改；未写出的项沿用 config/default.yaml。
+
+data:
+  start: "2021-01-01"        # 约 5~6 年分钟数据；特征矩阵每币种约 4GB，内存充足
+  download_workers: 12
+
+search:
+  time_budget_hours: 24      # 模型搜索总预算；首次建议 24~48 小时
+  cpu_threads: 16            # 训练用 16 线程
+  parallel_workers: 4        # GPU 上同时跑 4 个试验（96GB 显存足够；单个试验通常 < 10GB）
+  top_k_per_task: 5
+  torch:
+    batch_size: 8192
+    steps_per_epoch: 600
+    max_epochs: 40
+
+live:
+  inference_device: cpu      # 实时推理走 CPU，与 GPU 训练完全隔离
+  cpu_affinity: [0, 1, 2, 3] # 实时服务专用核心；训练进程会自动避开，并留 2 核给系统
+
+risk:
+  stake_usdt: 10.0           # 请按自己的资金情况设置；以下均为"上限"，算法无法放宽
+  daily_loss_limit_usdt: 100.0
+  max_open_positions: 5      # 请以币安 App「事件合约-交易规则」页显示的数值为准
+  max_order_usdt: 250.0      # 同上
+
+web:
+  host: 0.0.0.0              # 对外开放时务必设置 auth_token，并建议只通过 SSH 隧道/内网访问
+  port: 8600
+  auth_token: "请改成一个足够长的随机字符串"

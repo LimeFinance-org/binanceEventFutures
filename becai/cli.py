@@ -28,12 +28,16 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("--minutes", type=int, default=120)
     web = sub.add_parser("web", help="启动中文 Web 控制台")
     web.add_argument("--host"); web.add_argument("--port", type=int)
+    web.add_argument("--with-scheduler", action="store_true", help="在同一进程内同时运行调度器（Docker 单容器部署用）")
     sub.add_parser("scheduler", help="启动自动更新调度器（数据更新 + 定期再训练）")
     pm = sub.add_parser("promote", help="把某个模型版本设为线上版本"); pm.add_argument("version")
     sub.add_parser("rollback", help="回退到上一个线上版本")
     sub.add_parser("versions", help="列出模型版本")
     args = ap.parse_args(argv)
-    cfg = load_config(args.config)
+    if args.config:
+        import os
+        os.environ["BECAI_CONFIG"] = args.config      # 让并行搜索子进程、任务子进程继承同一份配置
+    cfg = load_config()
 
     if args.cmd == "data-sync":
         from .data.archive import sync_all
@@ -71,6 +75,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "web":
         import uvicorn
         from .web.app import create_app
+        if args.with_scheduler:
+            import threading
+            from .jobs import run_scheduler
+            threading.Thread(target=run_scheduler, args=(cfg,), daemon=True).start()
         uvicorn.run(create_app(cfg), host=args.host or cfg.web.host, port=args.port or int(cfg.web.port), log_level="warning")
         return 0
     if args.cmd == "scheduler":

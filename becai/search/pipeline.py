@@ -30,7 +30,7 @@ from ..models.base import COMPLEXITY
 from ..models.zoo import NEURAL, TABULAR
 from ..registry import Registry, blend_logit
 from ..signals.policy import optimize_policy
-from ..utils import dump_json, get_logger, load_json, ms_to_iso
+from ..utils import dump_json, get_logger, load_json, ms_to_iso, resolve_device
 from ..validation.holdout import HoldoutLedger
 from ..validation.splits import check_no_overlap, final_fit_split, make_timeline, purge_minutes, walk_forward
 from ..validation.stats import logloss, paired_block_bootstrap, pbo_cscv, prob_metrics
@@ -51,9 +51,13 @@ class Pipeline:
         self.dir = Path(cfg.path("runs_dir")) / self.run_id
         self.dir.mkdir(parents=True, exist_ok=True)
         self.state = load_json(self.dir / "state.json", {"run_id": self.run_id, "stages": {}, "created": int(time.time() * 1000)})
+        digest = cfg.digest("symbols", "horizons", "data", "features", "labels", "validation", "signal", "payout")
         if "config" not in self.state:
-            self.state["config"] = cfg.to_dict()
+            self.state["config"], self.state["config_digest"] = cfg.to_dict(), digest
             self._save_state()
+        elif self.state.get("config_digest") not in (None, digest):
+            log.warning("运行 %s 创建后配置发生了变化（数据/特征/验证/信号相关）。已完成的阶段不会重算，"
+                        "如需按新配置完整重跑，请使用新的运行ID。", self.run_id)
         self.force_holdout = force_holdout
         self._bundle: DataBundle | None = None
         self.tasks = cfg_tasks(cfg)
@@ -193,7 +197,8 @@ class Pipeline:
                 continue
             t0 = time.time()
             self.progress(detail=f"{sdef['name']} 开始（预算 {timeout / 60:.0f} 分钟）")
-            if workers > 1:
+            # 只有跑在 GPU 上的 study 才多进程并行；CPU 模型本身已用满 cpu_threads，再并行只会互相争抢
+            if workers > 1 and resolve_device(sdef.get("device", "auto")) == "cuda":
                 procs = [subprocess.Popen([sys.executable, "-m", "becai.cli", "worker", "--run-id", self.run_id, "--study", sdef["name"],
                                            "--timeout", str(timeout)], env=os.environ.copy()) for _ in range(workers)]
                 for p in procs:
@@ -495,6 +500,7 @@ class Pipeline:
         b = self.bundle
         meta = {"version": "v_" + self.run_id.replace("run_", ""), "run_id": self.run_id, "holdout_window": rep["window"],
                 "train_range": rep["train_range"], "data_end_ms": int(b.ts[-1]), "summary": summary, "columns": b.columns,
+                "tie_rate": {tn: r.get("tie_rate", 0.0) for tn, r in rep["tasks"].items()},     # 实时输出"持平概率"用
                 "portfolio": {k: rep["portfolio"]["main"].get(k) for k in ("n_trades", "win_rate", "total_pnl", "max_drawdown")},
                 "config": self.cfg.to_dict()}
         version = reg.add(self.dir / "version", meta)

@@ -1,0 +1,18 @@
+[Unit]
+Description=BECAI 每分钟实时预测
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/becai
+Environment=PYTHONUNBUFFERED=1
+Environment=CUDA_VISIBLE_DEVICES=
+ExecStart=/opt/becai/.venv/bin/python -m becai.cli live
+Restart=always
+RestartSec=5
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

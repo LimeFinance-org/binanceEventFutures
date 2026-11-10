@@ -47,3 +47,16 @@ def test_regime_filter_blocks_signals():
     d, reason = pol.decide(np.array([0.8, 0.8]), regime)
     assert list(d) == [0, 1] and "市场状态被过滤" in reason[0]
     assert Policy.from_dict(pol.to_dict()).excluded == {"vol": ["高波动"]}
+
+
+def test_regime_filter_adopted_only_when_bucket_is_significantly_worse(cfg):
+    p, y, ts, fold, regime = _data(150_000, 0.06, seed=7)
+    pol, diag = optimize_policy(("BTCUSDT", 10), p, y, ts, fold, regime, cfg, 0.8)
+    assert pol.excluded == {}                                   # 各状态表现相同：不应采用任何过滤器
+    assert sum(t["adopted"] for t in diag["filters_tried"]) == 1
+    rng = np.random.default_rng(11)
+    bad = (regime["vol"] == "高波动").to_numpy()
+    y2 = y.copy()
+    y2[bad] = (rng.uniform(size=bad.sum()) < 0.5).astype(np.int8)   # 高波动状态下预测完全失效
+    pol2, _ = optimize_policy(("BTCUSDT", 10), p, y2, ts, fold, regime, cfg, 0.8)
+    assert pol2.excluded == {"vol": ["高波动"]}

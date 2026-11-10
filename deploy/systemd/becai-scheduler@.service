@@ -1,0 +1,17 @@
+[Unit]
+Description=BECAI 数据更新与自动再训练调度
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/becai
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/opt/becai/.venv/bin/python -m becai.cli scheduler
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

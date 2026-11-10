@@ -225,7 +225,7 @@ async function loadTrain() {
 }
 async function ensureRuns() {
   state.runs = await api("/api/runs");
-  if (!state.run && state.runs.length) state.run = state.runs[0].run_id;
+  if (!state.run && state.runs.length) state.run = (state.runs.find((r) => r.has_report) || state.runs[0]).run_id;   // 默认选最近一个已出测试集报告的运行
   $$(".run-select").forEach((s) => { s.innerHTML = state.runs.map((r) => `<option ${r.run_id === state.run ? "selected" : ""}>${esc(r.run_id)}</option>`).join(""); });
   const cfg = await api("/api/config");
   const tasks = cfg.symbols.flatMap((s) => cfg.horizons.map((h) => `${s}_${h}m`));
@@ -267,7 +267,7 @@ async function loadFeatures() {
   if (!(await ensureRuns())) return;
   const [sc, ab] = await Promise.all([runApi("screen", true), runApi("ablation", true)]);
   const bars = (rows) => (rows || []).map((r) => ({ name: r.name, value: r.delta_logloss_1e4 }));
-  barChart($("#f-source"), bars(sc.by_source)); barChart($("#f-scale"), bars(sc.by_scale)); barChart($("#f-family"), bars(sc.by_family));
+  barChart($("#f-source"), bars(sc.by_source)); barChart($("#f-scale"), bars(sc.by_scale).map((b) => ({ ...b, name: b.name === "0" ? "即时值(无窗口)" : b.name + " 分钟" }))); barChart($("#f-family"), bars(sc.by_family));
   $("#f-groups").innerHTML = table([
     { t: "分组", k: "group" }, { t: "增益占比", num: 1, f: (r) => pct(r.gain, 2) }, { t: "跨折稳定性", num: 1, f: (r) => pct(r.stability, 0) }, { t: "特征数", num: 1, k: "n_features" },
   ], (sc.groups || []).slice(0, 30), "特征研究尚未完成");
@@ -292,7 +292,7 @@ async function loadBacktest() {
     { t: "延迟1分钟一致率", num: 1, f: (r) => pct(r.agree_delay_1m) }, { t: "指数/现货一致率", num: 1, f: (r) => pct(r.agree_index_vs_spot) },
     { t: "延迟1秒", num: 1, f: (r) => pct(r.sec?.agree_delay_1s) }, { t: "延迟5秒", num: 1, f: (r) => pct(r.sec?.agree_delay_5s) }, { t: "延迟10秒", num: 1, f: (r) => pct(r.sec?.agree_delay_10s) }, { t: "延迟30秒", num: 1, f: (r) => pct(r.sec?.agree_delay_30s) },
   ], Object.entries(la).flatMap(([sym, a]) => Object.entries(a.horizons).map(([h, x]) => ({ sym, h: h + "m", ...x, sec: (a.seconds || {})[h] }))), "尚未评估");
-  if (!rep || !rep.tasks) { $("#bt-head").innerHTML = '<div class="banner">该运行尚未进行独立测试集评估。</div>'; ["#bt-cards", "#bt-stab", "#bt-port", "#bt-stress"].forEach((s) => ($(s).innerHTML = "")); return; }
+  if (!rep || !rep.tasks) { $("#bt-head").innerHTML = '<div class="banner">该运行尚未进行独立测试集评估。</div>'; ["#bt-cards", "#bt-stab", "#bt-port", "#bt-stress"].forEach((s) => ($(s).innerHTML = "")); ["#bt-rel", "#bt-equity"].forEach((s) => setup($(s))); if (!diag) setup($("#bt-curve")); return; }
   const r = rep.tasks[state.task], s = r.signals, ev = r.expected_value_per_unit;
   $("#bt-head").innerHTML = `<div class="banner">独立测试集 ${esc(rep.window.join(" ~ "))}（训练区间 ${esc(rep.train_range.join(" ~ "))}）。第 ${rep.ledger.sequence} 次评估${rep.ledger.forced ? "，<b>强制重复评估，存在选择偏差</b>" : ""}。收益为固定赔率 ${pct(r.payout, 0)} 模拟，不是真实订单结算收益。</div>`;
   $("#bt-cards").innerHTML = [
@@ -385,5 +385,6 @@ $("#s-risk-save").onclick = () => act(async () => {
   const risk = {}; $$("[data-risk]").forEach((i) => (risk[i.dataset.risk] = Number(i.value)));
   const r = await api("/api/settings", { method: "POST", body: { risk } }); $("#s-msg").textContent = r.note;
 });
+$$("canvas").forEach((cv) => { cv.style.height = cv.getAttribute("height") + "px"; });   // 固定画布高度，避免无数据时被按宽高比拉伸
 setInterval(() => { if (["overview", "live", "train", "risk"].includes(state.tab)) refresh(); }, 10000);
 refresh();

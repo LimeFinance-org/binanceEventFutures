@@ -199,6 +199,18 @@ class TorchCandidate(Candidate):
 
     # ---- 训练 ----
     def fit(self, bundle: DataBundle, train_rows: np.ndarray, es_rows: np.ndarray) -> dict:
+        try:
+            return self._fit(bundle, train_rows, es_rows)
+        except RuntimeError as exc:
+            # 混合精度在个别 驱动/算子 组合下可能不被支持：自动退回全精度重训一次（显存不足不在此列）
+            if not self.params.get("amp", True) or "out of memory" in str(exc).lower() or self._dev().type != "cuda":
+                raise
+            self.params["amp"] = False
+            self.spec.setdefault("params", {})["amp"] = False
+            torch.cuda.empty_cache()
+            return self._fit(bundle, train_rows, es_rows)
+
+    def _fit(self, bundle: DataBundle, train_rows: np.ndarray, es_rows: np.ndarray) -> dict:
         p = self.params
         torch.manual_seed(self.seed)
         torch.set_num_threads(self.threads)
@@ -230,9 +242,10 @@ class TorchCandidate(Candidate):
         steps = max(1, min(steps, len(r_tr) // bs + 1))
         sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=float(p.get("lr", 1e-3)), total_steps=epochs * steps)
         use_amp = bool(p.get("amp", True)) and dev.type == "cuda"
+        scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
         def run(seqs, tab, sid):
-            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=use_amp):
+            with torch.autocast("cuda", dtype=torch.float16, enabled=use_amp):
                 return net(seqs, tab, sid).float()
 
         def evaluate() -> float:
@@ -257,9 +270,10 @@ class TorchCandidate(Candidate):
                 loss = F.binary_cross_entropy_with_logits(run(seqs, tab, s_tr_t[b]), y_tr_t[b], reduction="none")
                 loss = (loss * m_tr_t[b]).sum() / m_tr_t[b].sum().clamp_min(1.0)
                 opt.zero_grad(set_to_none=True)
-                loss.backward()
+                scaler.scale(loss).backward()
+                scaler.unscale_(opt)
                 nn.utils.clip_grad_norm_(net.parameters(), 1.0)
-                opt.step(); sched.step()
+                scaler.step(opt); scaler.update(); sched.step()
             val = evaluate()
             hist.append(val)
             if val < best - 1e-5:
@@ -296,7 +310,7 @@ class TorchCandidate(Candidate):
                     rr = r_t[j:j + 16384]
                     sid = torch.full((len(rr),), i, device=dev, dtype=torch.long)
                     seqs, tab = self._batch(T, sid, rr, dev)
-                    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=use_amp):
+                    with torch.autocast("cuda", dtype=torch.float16, enabled=use_amp):
                         logit = self.net(seqs, tab, sid).float()
                     probs.append(torch.sigmoid(logit).cpu().numpy())
                 pr = np.concatenate(probs)

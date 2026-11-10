@@ -136,14 +136,29 @@ def optimize_policy(task, p_cal: np.ndarray, y: np.ndarray, ts: np.ndarray, fold
             return (0, 0.0)
         return (rank[status], pick["coverage"] if status == "target_met" else pick["ev_lcb"] * pick["coverage"])
 
-    tried = [{"excluded": {}, "status": base_status, "pick": base_pick}]
+    tried = [{"excluded": {}, "status": base_status, "pick": base_pick, "adopted": True}]
     for ex in filters[1:]:
         pick, status, curve = best_for(ex)
-        tried.append({"excluded": ex, "status": status, "pick": pick})
-        # 过滤器必须带来明确改进（同档内目标值提升 10% 以上）才采用，降低多重比较带来的偶然性
+        entry = {"excluded": ex, "status": status, "pick": pick, "adopted": False}
+        tried.append(entry)
+        if pick is None:
+            continue
+        # 过滤器要同时满足两点才采用（一共会尝试十几个过滤器，必须防止偶然性）：
+        #   a) 目标值比当前最优提升 10% 以上；
+        #   b) 被排除状态下的信号胜率"显著"低于保留部分（排除部分的置信上界 < 保留部分的置信下界）。
+        removed = valid.copy()
+        hit = np.zeros(len(valid), dtype=bool)
+        for dim, vals in ex.items():
+            hit |= regime[dim].isin(vals).to_numpy()
+        removed &= hit
+        ex_stats = _signal_stats(p_cal, y, ts, fold, removed, pick["threshold"], horizon, payout, block, n_boot, n_total)
+        entry["excluded_stats"] = None if ex_stats is None else {k: ex_stats[k] for k in ("n", "win_rate", "lcb", "ucb")}
+        significant = ex_stats is not None and ex_stats["ucb"] < pick["lcb"]
         s_new, s_old = score(pick, status), score(best[0], best[1])
-        if s_new[0] > s_old[0] or (s_new[0] == s_old[0] and s_new[1] > 1.1 * s_old[1] and s_new[0] > 0):
+        better = s_new[0] > s_old[0] or (s_new[0] == s_old[0] and s_new[1] > 1.1 * s_old[1])
+        if significant and better:
             best = (pick, status, ex, curve)
+            entry["adopted"] = True
     pick, status, excluded, curve = best
     policy = Policy(list(task), None if pick is None else pick["threshold"], excluded if pick else {}, status, payout,
                     pick or {})
