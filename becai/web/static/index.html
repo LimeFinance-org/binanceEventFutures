@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>币安事件合约 AI 控制台</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">币安事件合约 AI <span class="sub">训练与预测控制台</span></div>
+  <div class="hstat" id="hstat"></div>
+</header>
+<nav id="nav">
+  <button data-tab="overview" class="on">总览</button>
+  <button data-tab="live">实时预测</button>
+  <button data-tab="history">历史信号</button>
+  <button data-tab="risk">风险与订单</button>
+  <button data-tab="data">数据管理</button>
+  <button data-tab="train">训练任务</button>
+  <button data-tab="board">模型排行榜</button>
+  <button data-tab="features">特征与周期</button>
+  <button data-tab="backtest">样本外回测</button>
+  <button data-tab="models">模型版本</button>
+  <button data-tab="settings">设置</button>
+</nav>
+<main>
+  <section id="tab-overview" class="tab on">
+    <div class="cards" id="ov-cards"></div>
+    <h2>最新一轮四项预测</h2>
+    <div class="grid4" id="ov-preds"></div>
+    <h2>今日统计（UTC）</h2>
+    <div id="ov-today"></div>
+    <p class="note">事件合约没有官方 API：本系统只给出开仓提示，需要在币安 App 中手动下单。赔率按设置中的值计算，结果为模拟收益，不是真实订单结算收益。</p>
+  </section>
+
+  <section id="tab-live" class="tab">
+    <div class="grid4" id="live-cards"></div>
+    <h2>最近预测记录 <span class="muted">（每 10 秒刷新；包含未开仓的预测及跳过原因）</span></h2>
+    <div id="live-table"></div>
+  </section>
+
+  <section id="tab-history" class="tab">
+    <div class="toolbar">
+      <label>币种 <select id="h-symbol"><option value="">全部</option><option>BTCUSDT</option><option>ETHUSDT</option></select></label>
+      <label>期限 <select id="h-horizon"><option value="">全部</option><option value="10">10分钟</option><option value="30">30分钟</option></select></label>
+      <label>统计范围 <select id="h-days"><option value="0">全部</option><option value="1">近1天</option><option value="7">近7天</option><option value="30">近30天</option></select></label>
+      <label><input type="checkbox" id="h-signals"> 只看开仓信号</label>
+      <button id="h-refresh">刷新</button>
+    </div>
+    <h2>分任务统计</h2><div id="h-stats"></div>
+    <h2>跳过原因分布</h2><div id="h-skips"></div>
+    <h2>每日模拟盈亏</h2><canvas id="h-pnl" height="160"></canvas>
+    <h2>预测明细</h2><div id="h-table"></div>
+    <div class="toolbar"><button id="h-prev">上一页</button><span id="h-page"></span><button id="h-next">下一页</button></div>
+  </section>
+
+  <section id="tab-risk" class="tab">
+    <h2>风险预算使用情况</h2><div class="cards" id="risk-cards"></div>
+    <h2>未到期合约</h2><div id="risk-open"></div>
+    <h2>登记真实订单 <span class="muted">（在币安 App 下单后登记，用于统计真实结算收益）</span></h2>
+    <div class="toolbar" id="order-form">
+      <select id="o-symbol"><option>BTCUSDT</option><option>ETHUSDT</option></select>
+      <select id="o-horizon"><option value="10">10分钟</option><option value="30">30分钟</option></select>
+      <select id="o-direction"><option value="HIGHER">HIGHER 看涨</option><option value="LOWER">LOWER 看跌</option></select>
+      <input id="o-stake" type="number" placeholder="本金 USDT" value="10">
+      <input id="o-payout" type="number" step="0.01" placeholder="赔率" value="0.8">
+      <input id="o-entry" type="number" step="0.01" placeholder="入场指数价(可选)">
+      <button id="o-add">登记订单</button>
+    </div>
+    <div id="risk-orders"></div>
+    <h2>风控参数</h2><div id="risk-config"></div>
+  </section>
+
+  <section id="tab-data" class="tab">
+    <div class="toolbar"><button id="data-sync">更新历史数据</button><span class="muted">从 data.binance.vision 增量下载，可重复执行</span></div>
+    <div id="data-table"></div>
+  </section>
+
+  <section id="tab-train" class="tab">
+    <div class="toolbar">
+      <input id="t-runid" placeholder="运行ID（留空=新建；填已有ID=断点恢复）">
+      <select id="t-until"><option value="">运行全部阶段</option><option value="prepare">只到：数据准备</option><option value="screen">只到：特征研究</option><option value="search">只到：模型搜索</option><option value="select">只到：模型选择</option></select>
+      <label title="同一测试窗口再次评估会产生选择偏差，将记入台账"><input type="checkbox" id="t-force"> 强制重复评估测试集</label>
+      <button id="t-start">启动训练</button>
+    </div>
+    <h2>资源监控</h2><div class="cards" id="gpu-cards"></div>
+    <h2>当前/最近运行进度</h2><div id="t-progress"></div>
+    <h2>模型搜索进度</h2><div id="t-studies"></div>
+    <h2>任务列表</h2><div id="t-jobs"></div>
+    <h2>任务日志</h2><pre id="t-log" class="log">点击任务的"日志"查看</pre>
+  </section>
+
+  <section id="tab-board" class="tab">
+    <div class="toolbar"><label>训练运行 <select class="run-select"></select></label><label>任务 <select class="task-select"></select></label></div>
+    <h2>样本外排行榜 <span class="muted">（walk-forward 样本外对数损失；技能值 = (ln2 − 对数损失)×10⁴，大于 0 才优于抛硬币）</span></h2>
+    <div id="b-table"></div>
+    <h2>模型选择过程</h2><div id="b-select"></div>
+    <h2>最近试验记录</h2><div id="b-trials"></div>
+  </section>
+
+  <section id="tab-features" class="tab">
+    <div class="toolbar"><label>训练运行 <select class="run-select"></select></label><label>任务 <select class="task-select"></select></label></div>
+    <p class="note">置换重要性：打乱该组特征后样本外对数损失的恶化量（×10⁴）。越大越重要；≤0 表示没有贡献。</p>
+    <div class="grid2">
+      <div><h2>按数据源</h2><canvas id="f-source" height="220"></canvas></div>
+      <div><h2>按时间周期（分钟）</h2><canvas id="f-scale" height="220"></canvas></div>
+    </div>
+    <h2>按特征族</h2><canvas id="f-family" height="260"></canvas>
+    <h2>最重要的特征分组（数据源|特征族|周期）</h2><div id="f-groups"></div>
+    <h2>消融实验</h2><div id="f-ablation"></div>
+  </section>
+
+  <section id="tab-backtest" class="tab">
+    <div class="toolbar"><label>训练运行 <select class="run-select"></select></label><label>任务 <select class="task-select"></select></label></div>
+    <div id="bt-head"></div>
+    <h2>独立测试集：该任务结果</h2><div class="cards" id="bt-cards"></div>
+    <div class="grid2">
+      <div><h2>验证期：阈值—胜率/覆盖率曲线</h2><canvas id="bt-curve" height="220"></canvas></div>
+      <div><h2>测试集：概率校准（预测概率 vs 实际频率）</h2><canvas id="bt-rel" height="220"></canvas></div>
+    </div>
+    <h2>分市场状态稳定性</h2><div id="bt-stab"></div>
+    <h2>组合回测（四项任务合并，经过全局风控）</h2>
+    <div id="bt-port"></div><canvas id="bt-equity" height="200"></canvas>
+    <h2>赔率情景与压力测试</h2><div id="bt-stress"></div>
+    <h2>分钟标签近似误差</h2><div id="bt-label"></div>
+    <h2>测试集访问台账</h2><div id="bt-ledger"></div>
+  </section>
+
+  <section id="tab-models" class="tab">
+    <div class="toolbar"><button id="m-rollback">回退到上一个线上版本</button></div>
+    <div id="m-table"></div>
+  </section>
+
+  <section id="tab-settings" class="tab">
+    <h2>访问令牌</h2>
+    <div class="toolbar"><input id="s-token" type="password" placeholder="X-Auth-Token（服务端未设置则留空）"><button id="s-token-save">保存到浏览器</button></div>
+    <h2>赔率</h2>
+    <div class="toolbar">
+      <label>模式 <select id="s-mode"><option value="fixed">固定赔率</option><option value="manual">手工录入实时赔率</option></select></label>
+      <label>固定赔率 <input id="s-fixed" type="number" step="0.01" style="width:90px"></label>
+      <button id="s-payout-save">保存</button><span id="s-be" class="muted"></span>
+    </div>
+    <div id="s-odds"></div>
+    <h2>风控上限 <span class="muted">（由人设定；算法不能放宽）</span></h2>
+    <div id="s-risk"></div>
+    <div class="toolbar"><button id="s-risk-save">保存风控参数</button><span id="s-msg" class="muted"></span></div>
+    <h2>完整配置（只读）</h2><pre id="s-config" class="log"></pre>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,163 @@
+# ============================================================
+# 币安事件合约 AI 训练与预测系统 —— 默认配置
+# 所有参数均可通过 config/local.yaml 或环境变量 BECAI_CONFIG 覆盖。
+# 说明：这里只规定"搜索空间与预算的边界"，具体特征/周期/模型/阈值由训练流程自动选择。
+# ============================================================
+
+paths:
+  data_dir: data            # 原始与特征数据
+  runs_dir: runs            # 每次训练运行的全部实验记录
+  registry_dir: registry    # 模型版本库
+  db_path: data/becai.sqlite  # 预测记录 / 任务 / 订单
+
+symbols: [BTCUSDT, ETHUSDT]
+horizons: [10, 30]          # 预测期限（分钟）
+
+data:
+  start: "2021-01-01"       # 历史起点（指数价格K线自2020年起可用；持仓量指标自2021年起）
+  end: null                 # null = 截至最新可用归档
+  archive_base: "https://data.binance.vision/data"
+  download_workers: 8
+  verify_checksum: true
+  # 数据源开关：算法会对各数据源做消融，这里只决定"是否采集"
+  datasets:
+    index: true             # 指数价格K线（标签来源，必须）
+    spot: true              # 现货K线
+    futures: true           # U本位永续K线
+    mark: true              # 标记价格K线
+    premium: true           # 溢价指数K线
+    funding: true           # 资金费率
+    metrics: true           # 持仓量 / 多空比（5分钟）
+  metrics_lag_minutes: 6    # 持仓量指标的发布延迟保护（防止使用尚未发布的数据）
+  spot_1s_sample_days: 14   # 用于评估"分钟标签近似误差"的现货1秒K线抽样天数（0=不下载）
+  # 实时行情接口（事件合约本身没有API，这里只是公开行情）
+  rest:
+    spot_base: "https://api.binance.com"
+    spot_fallback: "https://data-api.binance.vision"
+    futures_base: "https://fapi.binance.com"
+    timeout_seconds: 5
+
+features:
+  # 多时间尺度窗口（分钟）。算法在这些尺度上自动筛选，不预设哪一个最优。
+  scales: [3, 5, 10, 15, 30, 60, 120, 240, 480, 1440]
+  aligned_bars: [5, 15, 60, 240, 1440]   # 对齐高周期K线（只使用已收盘K线 + 当前K线截至此刻的部分）
+  micro_lags: 10
+  regime_window: 4320       # 波动率分位的因果回看窗口（分钟）
+  warmup_minutes: 2880
+
+labels:
+  # 用户指定：入场价 = 决策分钟的收盘指数价（等于下一分钟开盘价）
+  entry_delay_minutes: 0    # 0=决策分钟收盘价入场；1=延迟1分钟入场（仅用于敏感性分析）
+  # 平局（结算价==入场价）按币安规则退还本金，不计入胜负
+
+validation:
+  holdout_days: 90          # 最终独立测试集（时间上最后的N天），只在最终评估阶段读取一次
+  max_holdout_evaluations: 1  # 同一测试窗口允许的评估次数，超出需 --force 并记入台账
+  embargo_minutes: 60       # 在 purge(=预测期限) 之外额外隔离的分钟数
+  search:                   # 超参搜索用的轻量 walk-forward
+    n_folds: 3
+    val_days: 30
+    train_days: 540         # 滚动训练窗口上限（null=扩展窗口）
+    train_stride: 3         # 训练样本抽样步长（相邻分钟样本高度重叠，抽样几乎不损失信息）
+  final:                    # 候选模型的完整 walk-forward（用于校准 / 集成 / 阈值优化）
+    n_folds: 10
+    val_days: 30
+    train_days: 720
+    train_stride: 2
+  es_fraction: 0.1          # 训练窗口尾部用于早停的比例（与验证折之间同样 purge）
+  bootstrap:
+    n_boot: 2000
+    block_minutes: 240      # 区块自助法的时间块长度（处理重叠样本的相关性）
+
+search:
+  time_budget_hours: 24     # 整个搜索阶段的总时间预算
+  seed: 42
+  top_k_per_task: 5         # 每个任务进入完整 walk-forward 的候选数
+  screen:
+    stride: 5
+    perm_repeats: 2
+  # 各模型族的试验预算；trials=0 表示禁用。device: auto/cpu/cuda
+  families:
+    logreg:      {trials: 15,  device: cpu}
+    lightgbm:    {trials: 60,  device: cpu}
+    xgboost:     {trials: 60,  device: auto}
+    mlp:         {trials: 30,  device: auto}
+    gru:         {trials: 25,  device: auto}
+    tcn:         {trials: 25,  device: auto}
+    transformer: {trials: 30,  device: auto}
+    multiscale:  {trials: 40,  device: auto}
+  torch_scopes: [shared, per_symbol]   # 序列模型：两币种共享多任务 / 每币种独立，由实验决定
+  parallel_workers: 1       # 同一 study 的并行进程数（96GB 显存可设 3~6）
+  cpu_threads: 16           # 训练可使用的CPU线程（给实时服务留出核心）
+  torch:
+    max_epochs: 30
+    steps_per_epoch: 400
+    batch_size: 4096
+    patience: 4
+    amp: true
+  ensemble:
+    max_members: 4
+  simplicity:
+    # "复杂模型必须证明优于简单模型"：复杂模型的OOF对数损失改善
+    # 必须在区块自助法下显著（置信下界 > 0）才会被选中，否则回退到更简单的模型
+    confidence: 0.95
+
+signal:
+  target_win_rate: 0.70     # 研究目标（不是保证）
+  min_coverage: 0.01        # 信号覆盖率下限（占全部分钟的比例）
+  min_signals: 400          # 验证期最少信号数
+  min_effective_n: 100      # 去重叠后的最少有效样本数
+  threshold_grid: [0.50, 0.90, 0.005]   # 置信度阈值搜索区间 [起, 止, 步长]
+  min_fold_pass_ratio: 0.6  # 阈值在多少比例的验证折上必须优于盈亏平衡
+  regime_filters: true      # 是否允许按市场状态过滤（在验证集上选择）
+
+payout:
+  # 用户指定：赔率固定按 80% 计算（猜对 100 -> 180，猜错本金归零，平局退本金）
+  # 盈亏平衡胜率 = 1 / (1 + 0.80) = 55.56%
+  mode: fixed               # fixed=使用下面的固定赔率；manual=必须在控制台录入实时赔率才生成可执行信号
+  fixed: 0.80
+
+risk:
+  # —— 风控参数上限由人设定，算法只能在上限之内收紧，不能放宽 ——
+  stake_usdt: 10.0
+  min_order_usdt: 5.0             # 币安规则：最小下单 5 USDT
+  max_order_usdt: 250.0           # 单笔上限：请以 App"交易规则"页为准
+  max_open_positions: 5           # 平台未到期持仓数上限：请以 App"交易规则"页为准
+  max_total_open_usdt: 50.0       # 全部未到期合约的本金总额上限
+  max_symbol_open_usdt: 30.0
+  max_directional_usdt: 30.0      # 相关性加权后的同向敞口上限
+  btc_eth_correlation: 0.85       # BTC/ETH 相关系数（回测时用滚动估计覆盖）
+  min_spacing_minutes: 3          # 同一任务两次开仓的最小间隔
+  max_same_direction_streak: 4    # 同一币种连续同向开仓的最大次数（窗口内）
+  streak_window_minutes: 30
+  daily_loss_limit_usdt: 100.0    # 用户自设每日亏损上限（UTC 00:00 重置，含未到期本金）
+  platform_daily_loss_cap_usdt: 10000.0
+  max_consecutive_losses: 6
+  cooldown_minutes: 60
+  min_edge: 0.02                  # 最低期望收益（每1 USDT本金）
+  max_odds_age_seconds: 300       # payout.mode=manual 时手工录入赔率的有效期
+  track_mode: signals             # signals=假设每个可执行信号都被执行；confirmed=只统计已确认订单
+
+backtest:
+  # 主情景使用 payout.fixed；以下为敏感性情景。均为"固定赔率模拟"，不是真实订单结算收益
+  payout_scenarios: [0.70, 0.75, 0.80, 0.85]
+  stress:
+    win_rate_haircuts: [0.0, 0.02, 0.05]
+    n_paths: 1000
+
+live:
+  poll_offset_seconds: 1.5        # 每分钟收盘后延迟多少秒取数
+  buffer_minutes: 4500
+  max_latency_seconds: 20         # 超过则本轮判定为超时并跳过
+  inference_device: cpu           # 实时推理默认走CPU，与GPU训练隔离
+  cpu_affinity: [0, 1, 2, 3]      # 实时服务绑定的CPU核心（训练进程会避开）
+
+scheduler:
+  data_update_cron_hour_utc: 1    # 每日数据更新
+  retrain_every_days: 7           # 自动再训练周期（0=关闭）
+  promote_requires_improvement: true
+
+web:
+  host: 127.0.0.1
+  port: 8600
+  auth_token: ""                  # 非空时所有写操作需要请求头 X-Auth-Token
