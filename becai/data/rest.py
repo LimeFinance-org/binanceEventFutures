@@ -5,8 +5,6 @@
 """
 from __future__ import annotations
 
-import time
-
 import numpy as np
 import pandas as pd
 import requests
@@ -133,15 +131,15 @@ class LiveBuffer:
                 cur = self.frames[sym].get(name)
                 tcol = "time" if name in ("funding", "metrics") else "open_time"
                 if name in ("funding", "metrics"):
-                    # 低频数据：最多每 60 秒刷新一次
-                    if cur is not None and time.time() - self._slow_ts.get((sym, name), 0) < 55:
+                    # 低频数据：同一分钟内不重复刷新（用行情时钟而非墙上时钟，回放时同样成立）
+                    if cur is not None and now_ms - self._slow_ts.get((sym, name), 0) < 50_000:
                         continue
                     start = floor
                 else:
                     start = floor if cur is None or cur.empty else int(cur[tcol].max()) + MINUTE_MS
                 try:
                     new = self.client.fetch(name, sym, start, now_ms)
-                    self._slow_ts[(sym, name)] = time.time()
+                    self._slow_ts[(sym, name)] = now_ms
                 except Exception as exc:  # noqa: BLE001
                     self.errors[f"{name}/{sym}"] = str(exc)
                     continue

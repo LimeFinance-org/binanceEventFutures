@@ -208,8 +208,9 @@ class TorchCandidate(Candidate):
         to_t = lambda a, dt=None: torch.as_tensor(a, device=dev, dtype=dt)  # noqa: E731
         s_tr, r_tr, y_tr, m_tr = self._samples(bundle, train_rows)
         s_es, r_es, y_es, m_es = self._samples(bundle, es_rows)
-        if len(r_es) > 150_000:
-            sel = np.arange(0, len(r_es), len(r_es) // 150_000 + 1)
+        es_max = int(p.get("es_max_samples", 150_000))
+        if len(r_es) > es_max:
+            sel = np.arange(0, len(r_es), len(r_es) // es_max + 1)
             s_es, r_es, y_es, m_es = s_es[sel], r_es[sel], y_es[sel], m_es[sel]
         s_tr_t, r_tr_t = to_t(s_tr, torch.long), to_t(r_tr - T["offset"], torch.long)
         y_tr_t, m_tr_t = to_t(y_tr), to_t(m_tr)

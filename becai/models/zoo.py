@@ -92,24 +92,25 @@ def suggest_params(trial, family: str, torch_cfg: dict | None = None) -> dict:
         "tab_hidden": t.suggest_categorical("tab_hidden", [64, 128, 256]),
         "max_epochs": int(tc.get("max_epochs", 30)), "steps_per_epoch": int(tc.get("steps_per_epoch", 400)),
         "batch_size": int(tc.get("batch_size", 4096)), "patience": int(tc.get("patience", 4)), "amp": bool(tc.get("amp", True)),
+        "es_max_samples": int(tc.get("es_max_samples", 150_000)),
     }
     if family == "mlp":
         base["arch"] = "mlp"
         base["n_tab"] = t.suggest_categorical("n_tab_mlp", [32, 64, 128, 256])
         base["n_layers"] = 1
         return base
-    base["d_model"] = t.suggest_categorical("d_model", [32, 64, 128, 256])
-    base["n_layers"] = t.suggest_int("n_layers", 1, 4)
+    base["d_model"] = t.suggest_categorical("d_model", list(tc.get("d_model_choices", [32, 64, 128, 256])))
+    base["n_layers"] = t.suggest_int("n_layers", 1, int(tc.get("n_layers_max", 4)))
     if family == "multiscale":
         # 多时间尺度融合：融合哪些尺度、各尺度用什么编码器，都由搜索决定
         base["arch"] = t.suggest_categorical("arch", ["gru", "tcn", "transformer"])
         base["scales"] = list(t.suggest_categorical("scales", ["1,5", "1,15", "1,5,30", "1,5,15", "1,15,30", "5,30"]).split(","))
         base["scales"] = [int(s) for s in base["scales"]]
-        base["seq_len"] = t.suggest_categorical("seq_len_ms", [32, 64])
+        base["seq_len"] = t.suggest_categorical("seq_len_ms", list(tc.get("seq_len_multiscale_choices", [32, 64])))
     else:
         base["arch"] = family
         base["scales"] = [t.suggest_categorical("scale", [1, 3, 5])]
-        base["seq_len"] = t.suggest_categorical("seq_len", [64, 128, 256])
+        base["seq_len"] = t.suggest_categorical("seq_len", list(tc.get("seq_len_choices", [64, 128, 256])))
     if base["arch"] == "transformer":
         base["patch"] = t.suggest_categorical("patch", [2, 4, 8])
         base["heads"] = t.suggest_categorical("heads", [2, 4, 8])

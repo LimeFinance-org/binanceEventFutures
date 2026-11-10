@@ -35,8 +35,9 @@ def screen_task(bundle: DataBundle, task: tuple[str, int], folds: list[Fold], th
     rng = np.random.default_rng(seed)
     all_idx = np.arange(len(cols))
     for fi, f in enumerate(folds):
+        n_tr = len(f.train[::stride])
         spec = {"family": "lightgbm", "tasks": [[sym, h]], "features": cols, "threads": threads, "seed": seed,
-                "params": {"learning_rate": 0.05, "num_leaves": 63, "min_data_in_leaf": 800, "feature_fraction": 0.5,
+                "params": {"learning_rate": 0.05, "num_leaves": 63, "min_data_in_leaf": max(20, min(800, n_tr // 60)), "feature_fraction": 0.5,
                            "bagging_fraction": 0.7, "lambda_l2": 10.0, "n_estimators": 600, "early_stopping": 40}}
         cand = LightGBMCandidate(spec)
         cand.fit(bundle, f.train[::stride], f.es[::stride])

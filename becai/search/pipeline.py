@@ -128,7 +128,8 @@ class Pipeline:
         auc = {}
         for sym, h in self.tasks:
             auc[task_name(sym, h)] = suspicious_auc(np.asarray(b.symbols[sym].X[max(0, tl.dev_end - 400_000):tl.dev_end]),
-                                                    b.symbols[sym].labels[h][dev][-400_000:], b.columns)
+                                                    b.symbols[sym].labels[h][dev][-400_000:], b.columns,
+                                                    float(self.cfg.features.leak_auc_threshold))
         rep["leakage"]["single_feature_auc"] = auc
         rep["leakage"]["passed"] = bool(rep["leakage"]["truncation"]["passed"] and rep["leakage"]["tail_parity"]["passed"]
                                         and all(a["passed"] for a in auc.values()))

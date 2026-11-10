@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import time
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +23,7 @@ from .experiment_db import ExperimentDB
 
 log = get_logger("becai.search")
 optuna.logging.set_verbosity(optuna.logging.WARNING)
+warnings.filterwarnings("ignore", category=optuna.exceptions.ExperimentalWarning)
 
 
 def make_storage(path: Path):

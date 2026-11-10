@@ -44,6 +44,7 @@ features:
   micro_lags: 10
   regime_window: 4320       # 波动率分位的因果回看窗口（分钟）
   warmup_minutes: 2880
+  leak_auc_threshold: 0.60  # 单特征AUC超过该值判定为疑似泄漏并中止训练（真实行情中单特征AUC约0.52~0.54）
 
 labels:
   # 用户指定：入场价 = 决策分钟的收盘指数价（等于下一分钟开盘价）
@@ -95,6 +96,12 @@ search:
     batch_size: 4096
     patience: 4
     amp: true
+    es_max_samples: 150000   # 早停评估集的样本上限
+    # 结构搜索空间的边界（具体取值由搜索决定）。注意 seq_len × 尺度 不能超过特征预热长度
+    d_model_choices: [32, 64, 128, 256]
+    n_layers_max: 4
+    seq_len_choices: [64, 128, 256]
+    seq_len_multiscale_choices: [32, 64]
   ensemble:
     max_members: 4
   simplicity:
