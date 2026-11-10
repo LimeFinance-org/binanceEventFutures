@@ -500,6 +500,7 @@ class Pipeline:
         b = self.bundle
         meta = {"version": "v_" + self.run_id.replace("run_", ""), "run_id": self.run_id, "holdout_window": rep["window"],
                 "train_range": rep["train_range"], "data_end_ms": int(b.ts[-1]), "summary": summary, "columns": b.columns,
+                "train_end_ms": int(b.ts[self.timeline.dev_end - 1]),       # 模型实际见过的数据终点（不含测试集）
                 "tie_rate": {tn: r.get("tie_rate", 0.0) for tn, r in rep["tasks"].items()},     # 实时输出"持平概率"用
                 "portfolio": {k: rep["portfolio"]["main"].get(k) for k in ("n_trades", "win_rate", "total_pnl", "max_drawdown")},
                 "config": self.cfg.to_dict()}
@@ -520,7 +521,7 @@ class Pipeline:
                 tl = self.timeline
                 hold = np.arange(tl.holdout_start, len(b.ts), dtype=np.int64)
                 old = Predictor(reg.path(champ), "cpu")
-                if int(old.meta.get("data_end_ms", 0)) > int(b.ts[tl.holdout_start]):
+                if int(old.meta.get("train_end_ms", old.meta.get("data_end_ms", 0))) >= int(b.ts[tl.holdout_start]):
                     raise RuntimeError("旧版本的训练数据与新测试窗口重叠，无法公平比较")
                 op = old.predict(b, hold)
                 old_ll = float(np.mean([task_eval(b, t, hold, op[t]["p_up"])["logloss"] for t in op]))

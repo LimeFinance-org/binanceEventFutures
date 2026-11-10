@@ -116,6 +116,16 @@ def test_registry_predictor_matches_holdout_predictions(cfg, run):
     assert reg.champion() == "v_copy" and reg.rollback() == "v_test_run" and reg.champion() == "v_test_run"
 
 
+def test_champion_challenger_gate_compares_on_same_window(cfg, run):
+    reg = Registry(cfg.path("registry_dir"))
+    assert reg.champion() == "v_test_run"
+    again = Pipeline(cfg, "test_run")
+    again.stage_register()                       # 挑战者与冠军是同一个模型：不应被判定为"更优"
+    dec = load_json(again.dir / "register.json")
+    assert dec["promoted"] is False and dec["champion_logloss"] == pytest.approx(dec["new_logloss"], abs=1e-9)
+    assert reg.champion() == "v_test_run"
+
+
 def test_live_replay_saves_every_prediction_and_matches_offline(cfg, run):
     from becai.live.service import replay
     res = replay(cfg, minutes=45)
