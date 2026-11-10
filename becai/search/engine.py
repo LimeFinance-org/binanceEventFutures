@@ -10,14 +10,14 @@ import numpy as np
 from ..bundle import DataBundle
 from ..models.base import Task
 from ..models.zoo import make_candidate
-from ..validation.splits import Fold
+from ..validation.splits import Fold, trim_lookback
 from ..validation.stats import prob_metrics
 
 LN2 = float(np.log(2))
 
 
 def spec_id(spec: dict) -> str:
-    key = {k: spec.get(k) for k in ("family", "params", "tasks", "features", "members", "weights")}
+    key = {k: spec.get(k) for k in ("family", "params", "tasks", "features", "members", "weights", "train_lookback_days")}
     return spec["family"] + "_" + hashlib.sha1(json.dumps(key, sort_keys=True, default=str).encode()).hexdigest()[:10]
 
 
@@ -36,6 +36,7 @@ def fit_predict(spec: dict, bundle: DataBundle, fold: Fold, predict_rows: np.nda
     """在一折上训练并预测。返回 (模型, {task: p}, 训练信息)。"""
     cand = make_candidate(spec)
     t0 = time.time()
+    fold = trim_lookback(fold, spec.get("train_lookback_days"))
     info = cand.fit(bundle, fold.train, fold.es)
     rows = fold.val if predict_rows is None else predict_rows
     preds = cand.predict(bundle, rows) if len(rows) else {}

@@ -149,7 +149,9 @@ class TorchCandidate(Candidate):
         tab = None
         if self.features:
             cols = self.feature_idx(bundle)
-            tab = torch.from_numpy(np.stack([np.asarray(bundle.symbols[sym].X[lo2:hi])[:, cols] for sym in self.symbols])).to(dev)
+            def read(X):
+                return np.concatenate([np.asarray(X[a:min(hi, a + 200_000)])[:, cols] for a in range(lo2, hi, 200_000)])
+            tab = torch.from_numpy(np.stack([read(bundle.symbols[sym].X) for sym in self.symbols])).to(dev)
         return {"seq": seq, "tab": tab, "offset": lo2}
 
     def _fit_norm(self, T: dict, sym_ids: torch.Tensor, rows: torch.Tensor) -> None:

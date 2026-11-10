@@ -1,0 +1,44 @@
+# 无 GPU 时的 CPU 深度训练配置（4~8 核、16GB 内存级别的机器）
+# 用法： python -m becai.cli --config config/cpu_deep.yaml train
+# 原则：数据用全量；表格模型（CPU 上性价比最高）给足搜索预算；
+#       神经网络缩小规模但保留，由样本外结果决定是否被选用。
+
+data:
+  start: "2021-01-01"
+  download_workers: 8
+
+validation:
+  holdout_days: 90
+  es_max_days: 30
+  search: {n_folds: 3, val_days: 30, train_days: null, train_stride: 4}
+  final:  {n_folds: 8, val_days: 30, train_days: null, train_stride: 3}
+
+search:
+  time_budget_hours: 7
+  cpu_threads: 4
+  parallel_workers: 1
+  top_k_per_task: 4
+  lookback_days_choices: [180, 365, 730, 1095, 0]   # 用多长的历史训练由搜索决定（0 = 2021 年至今全部）
+  screen: {stride: 6, perm_repeats: 2}
+  # cost = 单次试验的相对耗时（实测：LightGBM 一折约 10~30 秒，共享 GRU 一折约 3.5 分钟），按成本分配 7 小时预算
+  families:
+    logreg:      {trials: 8,  device: cpu, cost: 0.5}
+    lightgbm:    {trials: 80, device: cpu, cost: 1}
+    xgboost:     {trials: 24, device: cpu, cost: 2}
+    mlp:         {trials: 6,  device: cpu, cost: 3}
+    gru:         {trials: 8,  device: cpu, cost: 10}
+    tcn:         {trials: 6,  device: cpu, cost: 8}
+    transformer: {trials: 0}          # 前两次试跑中样本外排名垫底且 CPU 上最慢，本轮不搜索
+    multiscale:  {trials: 8,  device: cpu, cost: 14}
+  torch_scopes: [shared]              # 两币种共享的多任务模型：一次训练覆盖四项任务，CPU 上最省
+  torch:
+    max_epochs: 12
+    steps_per_epoch: 150
+    batch_size: 1024
+    patience: 3
+    amp: false
+    es_max_samples: 40000
+    d_model_choices: [32, 64]
+    n_layers_max: 2
+    seq_len_choices: [32, 64]
+    seq_len_multiscale_choices: [32]

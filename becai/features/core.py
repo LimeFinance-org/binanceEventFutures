@@ -106,8 +106,11 @@ def _trade_features(b: _Builder, p: pd.DataFrame, pre: str, source: str, lix: pd
             b.add(f"{pre}_avgsz_{w}", np.log((_rsum(qv, w) / (_rsum(n, w) + EPS) + EPS) / (avg_sz_day + EPS)), source, "tradesize", w)
 
 
-def build_features(panel: pd.DataFrame, others: dict[str, pd.DataFrame] | None, cfg) -> FeatureSet:
-    """panel: 本币种面板；others: 其它币种面板（同一时间网格），用于跨品种特征。"""
+def build_features(panel: pd.DataFrame, others: dict[str, pd.DataFrame] | None, cfg, out_path=None) -> FeatureSet:
+    """panel: 本币种面板；others: 其它币种面板（同一时间网格），用于跨品种特征。
+
+    out_path: 给定时特征矩阵直接写入该 .npy 文件（内存映射），返回只读映射；用于长历史时控制内存峰值。
+    """
     fc = cfg.features
     scales = [int(w) for w in fc.scales]
     n = len(panel)
@@ -249,10 +252,22 @@ def build_features(panel: pd.DataFrame, others: dict[str, pd.DataFrame] | None, 
     np.clip(channels, -20, 20, out=channels)
 
     columns = list(b.cols)
-    X = np.empty((n, len(columns)), dtype=np.float32)
-    for j, name in enumerate(columns):
-        X[:, j] = b.cols[name]
-        b.cols[name] = None  # 及时释放
+    if out_path is not None:
+        # 按行分块顺序写入磁盘（逐列写入行优先文件会对整个文件反复随机写，极慢）
+        X = np.lib.format.open_memmap(out_path, mode="w+", dtype=np.float32, shape=(n, len(columns)))
+        step = 200_000
+        for lo in range(0, n, step):
+            hi = min(n, lo + step)
+            X[lo:hi] = np.column_stack([b.cols[c][lo:hi] for c in columns])
+        X.flush()
+        del X
+        b.cols.clear()
+        X = np.load(out_path, mmap_mode="r")
+    else:
+        X = np.empty((n, len(columns)), dtype=np.float32)
+        for j, name in enumerate(columns):
+            X[:, j] = b.cols[name]
+            b.cols[name] = None  # 及时释放
     return FeatureSet(X, columns, b.meta, ts, channels, list(ch), regime)
 
 

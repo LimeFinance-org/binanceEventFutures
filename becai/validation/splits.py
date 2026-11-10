@@ -45,7 +45,7 @@ def purge_minutes(cfg, horizon: int | None = None) -> int:
 
 
 def walk_forward(dev_end: int, n_folds: int, val_days: int, train_days: int | None, purge: int,
-                 es_fraction: float = 0.1, stride: int = 1, start: int = 0) -> list[Fold]:
+                 es_fraction: float = 0.1, stride: int = 1, start: int = 0, es_max_days: int | None = None) -> list[Fold]:
     """验证窗口取开发区间最后 n_folds*val_days 天，依次前滚；训练窗口严格在验证窗口之前。"""
     val_len = int(val_days) * DAY
     folds = []
@@ -57,6 +57,8 @@ def walk_forward(dev_end: int, n_folds: int, val_days: int, train_days: int | No
         if t_end - t_start < 5 * DAY or vs < 0:
             continue
         es_len = max(DAY, int((t_end - t_start) * es_fraction))
+        if es_max_days:
+            es_len = min(es_len, int(es_max_days) * DAY)
         es_start = t_end - es_len
         tr_end = es_start - purge
         if tr_end - t_start < 3 * DAY:
@@ -67,13 +69,24 @@ def walk_forward(dev_end: int, n_folds: int, val_days: int, train_days: int | No
     return folds
 
 
-def final_fit_split(dev_end: int, train_days: int | None, purge: int, es_fraction: float, stride: int, start: int = 0) -> Fold:
+def final_fit_split(dev_end: int, train_days: int | None, purge: int, es_fraction: float, stride: int, start: int = 0,
+                    es_max_days: int | None = None) -> Fold:
     """最终模型：用开发区间全部数据训练（尾部留早停集），之后在测试集上一次性评估。"""
     t_start = start if not train_days else max(start, dev_end - int(train_days) * DAY)
     es_len = max(DAY, int((dev_end - t_start) * es_fraction))
+    if es_max_days:
+        es_len = min(es_len, int(es_max_days) * DAY)
     es_start = dev_end - es_len
     return Fold(-1, np.arange(t_start, es_start - purge, max(1, stride), dtype=np.int64),
                 np.arange(es_start, dev_end, max(1, stride), dtype=np.int64), np.empty(0, dtype=np.int64))
+
+
+def trim_lookback(fold: Fold, lookback_days: int | None) -> Fold:
+    """只保留训练段最近 lookback_days 天的样本（0/None = 全部）。早停段与验证段不变。"""
+    if not lookback_days or int(lookback_days) <= 0 or len(fold.train) == 0:
+        return fold
+    keep = fold.train[fold.train > fold.train.max() - int(lookback_days) * DAY]
+    return Fold(fold.k, keep, fold.es, fold.val)
 
 
 def check_no_overlap(fold: Fold, purge: int) -> bool:

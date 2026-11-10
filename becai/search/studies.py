@@ -66,6 +66,9 @@ def build_spec(trial, sdef: dict, bundle: DataBundle, screens: dict, cfg) -> dic
     fam = sdef["family"]
     spec = {"family": fam, "tasks": sdef["tasks"], "device": resolve_device(sdef.get("device", "auto")),
             "threads": int(cfg.search.cpu_threads), "seed": int(cfg.search.seed)}
+    choices = [int(x) for x in (cfg.search.get("lookback_days_choices") or [])]
+    if choices:     # 用多长的历史训练（0 = 全部可用历史）也由搜索决定
+        spec["train_lookback_days"] = trial.suggest_categorical("train_lookback_days", choices)
     if fam in TABULAR:
         sc = screens[f"{sdef['tasks'][0][0]}_{sdef['tasks'][0][1]}m"]
         fp = suggest_feature_params(trial, [int(s) for s in cfg.features.scales], len(sc["group_ranking"]))
@@ -121,7 +124,8 @@ def make_objective(sdef: dict, bundle: DataBundle, folds: list[Fold], screens: d
             raise optuna.TrialPruned()
         finally:
             exp.log(run_id, "search", sdef["name"], trial.number, sdef["family"], sdef["tasks"], status, value,
-                    {"params": spec.get("params"), "feature_params": spec.get("feature_params"), "n_features": len(spec.get("features", []))},
+                    {"params": spec.get("params"), "feature_params": spec.get("feature_params"), "n_features": len(spec.get("features", [])),
+                     "train_lookback_days": spec.get("train_lookback_days")},
                     {"fold_scores": fold_scores, "task_logloss": per_task}, time.time() - t0)
 
     return objective

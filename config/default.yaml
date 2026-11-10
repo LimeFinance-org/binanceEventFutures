@@ -58,14 +58,15 @@ validation:
   search:                   # 超参搜索用的轻量 walk-forward
     n_folds: 3
     val_days: 30
-    train_days: 540         # 滚动训练窗口上限（null=扩展窗口）
+    train_days: null        # 训练窗口上限（null=扩展窗口；实际使用多长历史由 search.lookback_days_choices 搜索决定）
     train_stride: 3         # 训练样本抽样步长（相邻分钟样本高度重叠，抽样几乎不损失信息）
   final:                    # 候选模型的完整 walk-forward（用于校准 / 集成 / 阈值优化）
     n_folds: 10
     val_days: 30
-    train_days: 720
+    train_days: null
     train_stride: 2
   es_fraction: 0.1          # 训练窗口尾部用于早停的比例（与验证折之间同样 purge）
+  es_max_days: 30           # 早停集最长天数（长训练窗口时避免早停集过长、训练数据离验证期太远）
   bootstrap:
     n_boot: 2000
     block_minutes: 240      # 区块自助法的时间块长度（处理重叠样本的相关性）
@@ -74,10 +75,12 @@ search:
   time_budget_hours: 24     # 整个搜索阶段的总时间预算
   seed: 42
   top_k_per_task: 5         # 每个任务进入完整 walk-forward 的候选数
+  lookback_days_choices: [180, 365, 730, 0]   # 训练回看长度（天，0=全部历史）也作为搜索维度；留空则使用 train_days
   screen:
     stride: 5
     perm_repeats: 2
   # 各模型族的试验预算；trials=0 表示禁用。device: auto/cpu/cuda
+  # cost: 单次试验的相对耗时，用于按成本分配总时间预算（默认 1）
   families:
     logreg:      {trials: 15,  device: cpu}
     lightgbm:    {trials: 60,  device: cpu}

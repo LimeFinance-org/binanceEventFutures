@@ -75,3 +75,15 @@ def test_pbo_detects_noise_vs_real_edge():
     real[:, 0] += 2.0                                            # 一个真实更优的配置
     assert pbo_cscv(real)["pbo"] < 0.05
     assert multiple_testing_threshold(1000) > multiple_testing_threshold(1) > 1.6
+
+
+def test_lookback_trim_and_early_stopping_cap():
+    from becai.validation.splits import trim_lookback
+    purge = 90
+    tl = make_timeline(400 * 1440, 10, purge)
+    f = walk_forward(tl.dev_end, 2, 10, None, purge, 0.1, 1, es_max_days=5)[-1]
+    assert len(f.es) == 5 * 1440 and check_no_overlap(f, purge)          # 扩展窗口下早停集被限制为 5 天
+    short = trim_lookback(f, 30)
+    assert len(short.train) == 30 * 1440 and short.train.max() == f.train.max()
+    assert (short.es == f.es).all() and (short.val == f.val).all() and check_no_overlap(short, purge)
+    assert trim_lookback(f, 0) is f and trim_lookback(f, None) is f

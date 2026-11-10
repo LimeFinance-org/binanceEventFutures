@@ -89,7 +89,8 @@ class Pipeline:
     def folds(self, kind: str):
         v = self.cfg.validation[kind]
         fs = walk_forward(self.timeline.dev_end, int(v.n_folds), int(v.val_days), v.train_days, self.purge,
-                          float(self.cfg.validation.es_fraction), int(v.train_stride))
+                          float(self.cfg.validation.es_fraction), int(v.train_stride),
+                          es_max_days=self.cfg.validation.get("es_max_days"))
         assert fs, "开发区间数据不足，无法构建 walk-forward 折，请增加历史数据或减少折数/验证天数"
         assert all(check_no_overlap(f, self.purge) for f in fs)
         assert max(f.val.max() for f in fs) < self.timeline.dev_end <= self.timeline.holdout_start
@@ -190,8 +191,10 @@ class Pipeline:
             done_info = status["studies"].get(sdef["name"], {})
             if done_info.get("finished"):
                 continue
-            remaining_w = sum(d["trials"] for d in defs[i:] if not status["studies"].get(d["name"], {}).get("finished"))
-            timeout = max(60.0, (budget - status["elapsed"]) * sdef["trials"] / max(1, remaining_w))
+            # 按"试验数 × 单次试验相对成本"分配剩余预算：慢的模型族（神经网络）不会因为试验数少而只分到几分钟
+            cost = lambda d: d["trials"] * float(self.cfg.search.families[d["family"]].get("cost", 1.0))  # noqa: E731
+            remaining_w = sum(cost(d) for d in defs[i:] if not status["studies"].get(d["name"], {}).get("finished"))
+            timeout = max(60.0, (budget - status["elapsed"]) * cost(sdef) / max(1e-9, remaining_w))
             if budget - status["elapsed"] <= 0:
                 log.warning("搜索时间预算已用完，跳过 %s", sdef["name"])
                 continue
@@ -437,7 +440,8 @@ class Pipeline:
         entry = ledger.acquire(window, self.run_id, self.cfg.digest("features", "labels", "validation", "search", "signal"),
                                int(self.cfg.validation.max_holdout_evaluations), self.force_holdout)
         v = self.cfg.validation.final
-        fold = final_fit_split(tl.dev_end, v.train_days, self.purge, float(self.cfg.validation.es_fraction), int(v.train_stride))
+        fold = final_fit_split(tl.dev_end, v.train_days, self.purge, float(self.cfg.validation.es_fraction), int(v.train_stride),
+                               es_max_days=self.cfg.validation.get("es_max_days"))
         hold = np.arange(tl.holdout_start, len(b.ts), dtype=np.int64)
         sels = {task_name(s, h): load_json(self.dir / "selection" / f"{task_name(s, h)}.json") for s, h in self.tasks}
         board = load_json(self.dir / "leaderboard.json")

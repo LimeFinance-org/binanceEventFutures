@@ -94,17 +94,22 @@ def build_bundle(cfg, start=None, end=None, cache: bool = True) -> DataBundle:
         log.info("加载特征缓存 %s: %d 行 × %d 特征", key, len(any_p), len(info["columns"]))
         return DataBundle(any_p.index.to_numpy(dtype=np.int64), info["columns"], info["meta"], info["channel_names"],
                           symbols, [int(h) for h in cfg.horizons])
+    if not cache:
+        with timer(f"构建特征 ({len(any_p)} 行)", log):
+            return bundle_from_panels(cfg, panels)
+    # 逐币种构建并直接写入磁盘（内存映射），长历史时内存峰值只取决于单个币种
+    cdir.mkdir(parents=True, exist_ok=True)
+    warmup = max(int(cfg.features.warmup_minutes), max_lookback(cfg))
+    symbols, first = {}, None
     with timer(f"构建特征 ({len(any_p)} 行)", log):
-        bundle = bundle_from_panels(cfg, panels)
-    if cache:
-        cdir.mkdir(parents=True, exist_ok=True)
-        for sym, sd in bundle.symbols.items():
-            np.save(cdir / f"{sym}_X.npy", sd.X)
-            np.save(cdir / f"{sym}_C.npy", sd.channels)
-            sd.regime.to_parquet(cdir / f"{sym}_regime.parquet")
-            sd.X = np.load(cdir / f"{sym}_X.npy", mmap_mode="r")
-            sd.channels = np.load(cdir / f"{sym}_C.npy", mmap_mode="r")
-        warmup = max(int(cfg.features.warmup_minutes), max_lookback(cfg))
-        dump_json({"columns": bundle.columns, "meta": bundle.meta, "channel_names": bundle.channel_names, "warmup": warmup},
-                  cdir / "info.json")
-    return bundle
+        for sym, p in panels.items():
+            fs = build_features(p, {o: q for o, q in panels.items() if o != sym}, cfg, out_path=cdir / f"{sym}_X.npy")
+            np.save(cdir / f"{sym}_C.npy", fs.channels)
+            fs.regime.to_parquet(cdir / f"{sym}_regime.parquet")
+            sd = SymbolData(fs.X, np.load(cdir / f"{sym}_C.npy", mmap_mode="r"), p["ix_c"].to_numpy(dtype=np.float64), fs.regime)
+            attach_labels(sd, [int(h) for h in cfg.horizons], int(cfg.labels.entry_delay_minutes), warmup)
+            symbols[sym] = sd
+            first = first or fs
+            del fs
+    dump_json({"columns": first.columns, "meta": first.meta, "channel_names": first.channel_names, "warmup": warmup}, cdir / "info.json")
+    return DataBundle(first.ts, first.columns, first.meta, first.channel_names, symbols, [int(h) for h in cfg.horizons])
